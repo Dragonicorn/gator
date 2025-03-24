@@ -3,7 +3,11 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/xml"
 	"fmt"
+	"html"
+	"io"
+	"net/http"
 	"os"
 	"time"
 
@@ -143,6 +147,95 @@ func handlerusers(s *state, cmd command) error {
 	return nil
 }
 
+func handleragg(s *state, cmd command) error {
+	var (
+		ct  context.Context = context.Background()
+		err error
+		// feed *RSSFeed
+	)
+	if len(cmd.args) > 0 {
+		fmt.Println("agg command requires feed URL")
+		return fmt.Errorf("agg command requires feed URL\n")
+	}
+	_, err = fetchFeed(ct, "https://www.wagslane.dev/index.xml")
+	if err != nil {
+		fmt.Println("Error fetching feed")
+		return fmt.Errorf("error %v fetching feed\n", err)
+	}
+	return nil
+}
+
+type RSSItem struct {
+	Title       string `xml:"title"`
+	Link        string `xml:"link"`
+	Description string `xml:"description"`
+	PubDate     string `xml:"pubDate"`
+}
+
+type RSSFeed struct {
+	Channel struct {
+		Title       string    `xml:"title"`
+		Link        string    `xml:"link"`
+		Description string    `xml:"description"`
+		Item        []RSSItem `xml:"item"`
+	} `xml:"channel"`
+}
+
+func fetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
+	var (
+		body    []byte
+		client  http.Client
+		req     *http.Request
+		resp    *http.Response
+		rssFeed RSSFeed
+		err     error
+	)
+	req, err = http.NewRequestWithContext(ctx, "GET", feedURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "gator")
+	resp, err = client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	// fmt.Printf("Status: %s\n", resp.Status)
+	if resp.StatusCode > 299 {
+		fmt.Printf("Unable to fetch Feed %s\n", feedURL)
+		return nil, err
+	}
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	// fmt.Println(string(body))
+	err = xml.Unmarshal(body, &rssFeed)
+	if err != nil {
+		fmt.Printf("Error unmarshaling feed XML")
+		return nil, err
+	}
+	// convert XML escaped entities into normal entities
+	rssFeed.Channel.Title = html.UnescapeString(rssFeed.Channel.Title)
+	// fmt.Printf("Feed Title: %s\n", rssFeed.Channel.Title)
+	// fmt.Printf("Feed URL: %s\n", rssFeed.Channel.Link)
+	rssFeed.Channel.Description = html.UnescapeString(rssFeed.Channel.Description)
+	// fmt.Printf("Feed Description: %s\n", rssFeed.Channel.Description)
+	// fmt.Println("Items:")
+	for _, v := range rssFeed.Channel.Item {
+		v.Title = html.UnescapeString(v.Title)
+		// fmt.Printf("\tTitle: %s\n", v.Title)
+		// fmt.Printf("\tURL: %s\n", v.Link)
+		v.PubDate = html.UnescapeString(v.PubDate)
+		// fmt.Printf("\tPublication Date: %s\n", v.PubDate)
+		v.Description = html.UnescapeString(v.Description)
+		// fmt.Printf("\tDescription: %s\n", v.Description)
+		break
+	}
+	fmt.Println(rssFeed)
+	return &rssFeed, nil
+}
+
 func main() {
 	// Read configuration from file and create application state
 	cfg := config.Read()
@@ -161,6 +254,7 @@ func main() {
 	ch.register("login", handlerlogin)
 	ch.register("register", handlerregister)
 	ch.register("users", handlerusers)
+	ch.register("agg", handleragg)
 
 	if len(os.Args) < 2 {
 		fmt.Println("Insufficient arguments provided")
