@@ -236,6 +236,57 @@ func fetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
 	return &rssFeed, nil
 }
 
+func handleraddfeed(s *state, cmd command) error {
+	var (
+		ct       context.Context = context.Background()
+		dbParams database.CreateFeedParams
+		dbFeed   database.Feed
+		dbUser   database.User
+		err      error
+	)
+	if len(cmd.args) < 2 {
+		fmt.Println("addfeed command requires feed name and URL")
+		return fmt.Errorf("addfeed command requires feed name and URL\n")
+	}
+	// Check for existing feed in database
+	dbFeed, err = s.db.GetFeed(ct, cmd.args[0])
+	if err == nil && dbFeed.Name == cmd.args[0] {
+		fmt.Printf("feed '%s' already exists in database\n", dbFeed.Name)
+		return fmt.Errorf("feed '%s' already exists in database\n", dbFeed.Name)
+	}
+	// if err != nil {
+	// 	return fmt.Errorf("addfeed command database select query error: %v\n", err)
+	// }
+
+	// Get current user from database
+	dbUser, err = s.db.GetUser(ct, s.config.UserName)
+	if err != nil {
+		return fmt.Errorf("addfeed command database select query error: %v\n", err)
+	}
+
+	// Create new feed in database
+	dbParams.ID = uuid.New()
+	dbParams.CreatedAt = time.Now()
+	dbParams.UpdatedAt = dbParams.CreatedAt
+	dbParams.Name = cmd.args[0]
+	dbParams.Url = cmd.args[1]
+	dbParams.UserID = dbUser.ID
+	dbFeed, err = s.db.CreateFeed(ct, dbParams)
+	if err != nil {
+		return fmt.Errorf("addfeed command database insert query error: %v\n", err)
+	}
+
+	fmt.Println("Feed database record:")
+	fmt.Printf("\tID = %v\n", dbFeed.ID)
+	fmt.Printf("\tCreated At = %v\n", dbFeed.CreatedAt)
+	fmt.Printf("\tUpdated At = %v\n", dbFeed.UpdatedAt)
+	fmt.Printf("\tName = %s\n", dbFeed.Name)
+	fmt.Printf("\tURL = %s\n", dbFeed.Url)
+	fmt.Printf("\tUserID = %v\n", dbFeed.UserID)
+	fmt.Printf("feed '%s' added\n", dbFeed.Name)
+	return nil
+}
+
 func main() {
 	// Read configuration from file and create application state
 	cfg := config.Read()
@@ -255,6 +306,7 @@ func main() {
 	ch.register("register", handlerregister)
 	ch.register("users", handlerusers)
 	ch.register("agg", handleragg)
+	ch.register("addfeed", handleraddfeed)
 
 	if len(os.Args) < 2 {
 		fmt.Println("Insufficient arguments provided")
