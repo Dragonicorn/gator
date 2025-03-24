@@ -287,6 +287,37 @@ func handleraddfeed(s *state, cmd command) error {
 	return nil
 }
 
+func handlerfeeds(s *state, cmd command) error {
+	var (
+		ct      context.Context = context.Background()
+		dbFeeds []database.Feed
+		dbUser  database.User
+		err     error
+	)
+	if len(cmd.args) > 0 {
+		fmt.Println("feeds command requires no arguments")
+		return fmt.Errorf("feeds command requires no arguments\n")
+	}
+	// Get all feeds in database
+	dbFeeds, err = s.db.GetFeeds(ct)
+	if err != nil {
+		return fmt.Errorf("feeds command database select query error: %v\n", err)
+	}
+	for _, feed := range dbFeeds {
+		fmt.Printf("* %s\n", feed.Name)
+		fmt.Printf("* %s\n", feed.Url)
+
+		// Get current user from database
+		dbUser, err = s.db.GetUserById(ct, feed.UserID)
+		if err != nil {
+			return fmt.Errorf("feeds command database select query error: %v\n", err)
+		}
+		fmt.Printf("* %s\n", dbUser.Name)
+		fmt.Println()
+	}
+	return nil
+}
+
 func main() {
 	// Read configuration from file and create application state
 	cfg := config.Read()
@@ -307,6 +338,7 @@ func main() {
 	ch.register("users", handlerusers)
 	ch.register("agg", handleragg)
 	ch.register("addfeed", handleraddfeed)
+	ch.register("feeds", handlerfeeds)
 
 	if len(os.Args) < 2 {
 		fmt.Println("Insufficient arguments provided")
