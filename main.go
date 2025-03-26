@@ -11,8 +11,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/Dragonicorn/gator/internal/config"
-	"github.com/Dragonicorn/gator/internal/database"
+	"github.com/dragonicorn/gator/internal/config"
+	"github.com/dragonicorn/gator/internal/database"
 
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
@@ -238,11 +238,13 @@ func fetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
 
 func handleraddfeed(s *state, cmd command) error {
 	var (
-		ct       context.Context = context.Background()
-		dbParams database.CreateFeedParams
-		dbFeed   database.Feed
-		dbUser   database.User
-		err      error
+		ct           context.Context = context.Background()
+		dbParams     database.CreateFeedParams
+		dbFeed       database.Feed
+		dbUser       database.User
+		dbFFParams   database.CreateFeedFollowParams
+		dbFeedFollow database.CreateFeedFollowRow
+		err          error
 	)
 	if len(cmd.args) < 2 {
 		fmt.Println("addfeed command requires feed name and URL")
@@ -283,7 +285,26 @@ func handleraddfeed(s *state, cmd command) error {
 	fmt.Printf("\tName = %s\n", dbFeed.Name)
 	fmt.Printf("\tURL = %s\n", dbFeed.Url)
 	fmt.Printf("\tUserID = %v\n", dbFeed.UserID)
-	fmt.Printf("feed '%s' added\n", dbFeed.Name)
+	fmt.Printf("feed '%s' added\n\n", dbFeed.Name)
+
+	// Create new feedfollow in database
+	dbFFParams.ID = uuid.New()
+	dbFFParams.CreatedAt = time.Now()
+	dbFFParams.UpdatedAt = dbParams.CreatedAt
+	dbFFParams.UserID = dbUser.ID
+	dbFFParams.FeedID = dbFeed.ID
+	dbFeedFollow, err = s.db.CreateFeedFollow(ct, dbFFParams)
+	if err != nil {
+		return fmt.Errorf("addfeed command database insert query error: %v\n", err)
+	}
+
+	fmt.Println("FeedFollow database record:")
+	fmt.Printf("\tID = %v\n", dbFeedFollow.ID)
+	fmt.Printf("\tCreated At = %v\n", dbFeedFollow.CreatedAt)
+	fmt.Printf("\tUpdated At = %v\n", dbFeedFollow.UpdatedAt)
+	fmt.Printf("\tUserID = %v\n", dbFeedFollow.UserID)
+	fmt.Printf("\tFeedID = %v\n", dbFeedFollow.FeedID)
+	fmt.Printf("feed '%s' followed by '%s'\n", dbFeedFollow.FeedName, dbFeedFollow.UserName)
 	return nil
 }
 
@@ -318,6 +339,73 @@ func handlerfeeds(s *state, cmd command) error {
 	return nil
 }
 
+func handlerfollow(s *state, cmd command) error {
+	var (
+		ct           context.Context = context.Background()
+		dbParams     database.CreateFeedFollowParams
+		dbFeedFollow database.CreateFeedFollowRow
+		dbFeed       database.Feed
+		dbUser       database.User
+		err          error
+	)
+	if len(cmd.args) < 1 {
+		fmt.Println("follow command requires feed URL")
+		return fmt.Errorf("follow command requires feed URL\n")
+	}
+	// Get feed by URL
+	dbFeed, err = s.db.GetFeedByURL(ct, cmd.args[0])
+	if err != nil {
+		return fmt.Errorf("follow command database select query error: %v\n", err)
+	}
+
+	// Get current user from database
+	dbUser, err = s.db.GetUser(ct, s.config.UserName)
+	if err != nil {
+		return fmt.Errorf("follow command database select query error: %v\n", err)
+	}
+
+	// Create new feedfollow in database
+	dbParams.ID = uuid.New()
+	dbParams.CreatedAt = time.Now()
+	dbParams.UpdatedAt = dbParams.CreatedAt
+	dbParams.UserID = dbUser.ID
+	dbParams.FeedID = dbFeed.ID
+	dbFeedFollow, err = s.db.CreateFeedFollow(ct, dbParams)
+	if err != nil {
+		return fmt.Errorf("follow command database insert query error: %v\n", err)
+	}
+
+	fmt.Println("FeedFollow database record:")
+	fmt.Printf("\tID = %v\n", dbFeedFollow.ID)
+	fmt.Printf("\tCreated At = %v\n", dbFeedFollow.CreatedAt)
+	fmt.Printf("\tUpdated At = %v\n", dbFeedFollow.UpdatedAt)
+	fmt.Printf("\tUserID = %v\n", dbFeedFollow.UserID)
+	fmt.Printf("\tFeedID = %v\n", dbFeedFollow.FeedID)
+	fmt.Printf("feed '%s' followed by '%s'\n", dbFeedFollow.FeedName, dbFeedFollow.UserName)
+	return nil
+}
+
+func handlerfollowing(s *state, cmd command) error {
+	var (
+		ct            context.Context = context.Background()
+		dbFeedFollows []database.GetFeedFollowsForUserRow
+		err           error
+	)
+	if len(cmd.args) > 0 {
+		fmt.Println("following command requires no arguments")
+		return fmt.Errorf("following command requires no arguments\n")
+	}
+	// Get all feeds in database followed by current user
+	dbFeedFollows, err = s.db.GetFeedFollowsForUser(ct, s.config.UserName)
+	if err != nil {
+		return fmt.Errorf("following command database select query error: %v\n", err)
+	}
+	for _, feed := range dbFeedFollows {
+		fmt.Printf("* %s\n", feed.FeedName)
+	}
+	return nil
+}
+
 func main() {
 	// Read configuration from file and create application state
 	cfg := config.Read()
@@ -339,6 +427,8 @@ func main() {
 	ch.register("agg", handleragg)
 	ch.register("addfeed", handleraddfeed)
 	ch.register("feeds", handlerfeeds)
+	ch.register("follow", handlerfollow)
+	ch.register("following", handlerfollowing)
 
 	if len(os.Args) < 2 {
 		fmt.Println("Insufficient arguments provided")
@@ -352,5 +442,5 @@ func main() {
 	if err != nil {
 		os.Exit(1)
 	}
-	os.Exit(0)
+	// os.Exit(0)
 }

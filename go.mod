@@ -1,4 +1,4 @@
-module github.com/Dragonicorn/gator
+module github.com/dragonicorn/gator
 
 go 1.23.4
 
